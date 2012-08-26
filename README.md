@@ -1,4 +1,4 @@
-# LaundryMate
+# Greedy Disjoint Paths
 This is an implentation of the GDP algorithm found in Section V part B of MaximizingMessageRouting.pdf. 
 
 
