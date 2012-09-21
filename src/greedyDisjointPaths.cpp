@@ -51,7 +51,8 @@ istream& IN_PAIR()
 void USAGE()
 {
 	cerr << "programName [<Dim> <Energy_FILE_NAME> <Msg_Pairs_FILE_NAME>]\n"
-			<< "    OR stdin=[<dim> <E> < <src> <dest> >+]" << endl;
+			<< "  Energy_file contains an int representing the initial energy of the entire network\n"
+			<< "  Msg_Pairs contains pairs of ints separated by whitespace; first int routes to second int"<< endl;
 	exit(1);
 }
 
@@ -79,59 +80,27 @@ int main( int argc, char* argv[] )
 	//
 
 	list<Edge*> pathOfEdges;
-	int dimension = 0, m = 0, readRequests=0, satisfiedRequests = 0;
+	int dimension = 0, m = 0, satisfiedRequests = 0;
 	double E = 0.0, beta = 0.0, res = -1.0;
 
-	if ( argc==2  )
+	readFromFile = true;
+	dimension = atoi( argv[1] );
+	in.open(argv[2]);
+	if ( !in  )
 	{
-		out.close();
-		writeToFile = true;
-		out.open(argv[1]);
-		if ( !out  )
-		{
-			cerr << "ERROR: could not open " << argv[1] << endl;
-			exit(1);
-		}
+		cerr << "ERROR: could not open " << argv[2] << endl;
+		exit(1);
 	}
-	if ( argc==5  )
-	{
-		out.close();
-		writeToFile = true;
-		out.open(argv[4]);
-		if ( !out  )
-		{
-			cerr << "ERROR: could not open " << argv[4] << endl;
-			exit(1);
-		}
-		argc -= 1;
-	}
-	if ( argc==4 )
-	{
-		readFromFile = true;
-		dimension = atoi( argv[1] );
-		in.open(argv[2]);
-		if ( !in  )
-		{
-			cerr << "ERROR: could not open " << argv[2] << endl;
-			exit(1);
-		}
-		in >> E;
-		in.close();
+	in >> E;
+	in.close();
 
-		in.open(argv[3]);
-		if ( !in )
-		{
-			cerr << "ERROR: could not open " << argv[3] << endl;
-			exit(1);
-		}
-	}
-	else
+	in.open(argv[3]);
+	if ( !in )
 	{
-		// read dim, initial network energy, and total number of messages
-		IN() >> dimension >> E;
-		if ( !IN() ) { cerr << "ERROR: cannot read dim, energy; invalid input format." << endl; exit(1); }
-
+		cerr << "ERROR: could not open " << argv[3] << endl;
+		exit(1);
 	}
+
 
 
 	if ( !(dimension>=2) ) { cerr << "ERROR: dimension must be >=2" << endl; exit(1); }
@@ -147,42 +116,79 @@ int main( int argc, char* argv[] )
 		OUT() << g.toStrinSimple() << "@\n";
 
 		double initEnergy = g.getTotalEnergy();
-
-			//OUT() << g.toString()<< endl;
 		int x,y;
+		list< pair<int,int> > unsatisfiedRequests;
+
+		// read all the possible requests
 		while ( IN_PAIR() >> x >> y )
 		{
-			readRequests += 1;
-			pathOfEdges.clear();
-			res = g.dijkstra( x, y, pathOfEdges );
-
-			if ( res != -1 )
-			{
-				satisfiedRequests += 1;
-
-				traversePathAndUpdate(beta, pathOfEdges);
-
-
-				//cout << "\n}\n";
-
-				//exit(0);
-
-			}
-			else
-			{
-				//OUT() << "CANNOT ROUTE " << x << " TO " << y << endl;
-			}
-			OUT() << g.toStrinSimple();
-			OUT() << x << " " << y;
-			list<Edge*>::const_iterator itr = pathOfEdges.begin(),
-					end = pathOfEdges.end();
-			for ( ; itr != end; ++itr )
-			{
-				OUT() << " " << (*itr)->getSource()->getID() << " " << (*itr)->getDestination()->getID();
-			}
-
-			OUT() << endl << "@";
+			unsatisfiedRequests.push_back( make_pair(x,y) );
 		}
+		OUT() << "attempting to route " << unsatisfiedRequests.size() << " requests" << endl;
+		assert( !unsatisfiedRequests.empty() );
+
+
+
+
+		pair<int,int> min_pair;
+		list<Edge*> min_pathOfEdges;
+		double min_shortestPath = INT_MAX;
+
+
+		// while we have unsatisfied requests,
+		while ( !unsatisfiedRequests.empty() )
+		{
+			// initialize these
+			min_pair = make_pair(-1,-1);
+			min_pathOfEdges.clear();
+			min_shortestPath = INT_MAX;
+
+
+			// For each unsatisfied request, find its shortest-path.
+			// Select the minimum-weight shortest path. Remove this path from the unsatisfiedRequest list.
+			// Traverse this path
+			list< pair<int,int> >::iterator itr = unsatisfiedRequests.begin(),
+								end = unsatisfiedRequests.end();
+			while ( itr != end )
+			{
+				pathOfEdges.clear();
+				res = g.dijkstra( (*itr).first, (*itr).second, pathOfEdges );
+
+				// remove points that we can't satisfy
+				if ( res == -1 )
+				{
+					OUT() << "could not connect the request (" << (*itr).first << ", " << (*itr).second <<")" << endl;
+					itr = unsatisfiedRequests.erase( itr );
+				}
+				// if we find a better shortest-path, save it.
+				else if ( res < min_shortestPath )
+				{
+					OUT() << "Round: Better shortest path: (" << (*itr).first << "," << (*itr).second << ") of length " << res << endl;
+					min_pair = *itr;
+					min_pathOfEdges = pathOfEdges;
+					min_shortestPath = res;
+
+					itr++;
+				}
+				else
+				{
+					itr++;
+				}
+			}
+
+
+			if ( min_shortestPath != INT_MAX )
+			{
+				assert( min_pair.first != -1 );assert( min_pair.second != -1 );
+
+				OUT () <<"Satisfied (" << min_pair.first << "," << min_pair.second << ")" << endl;
+				unsatisfiedRequests.remove( min_pair );
+				satisfiedRequests += 1;
+				traversePathAndUpdate(beta, min_pathOfEdges);
+			}
+		}
+
+
 		double finalEnergy = g.getTotalEnergy();
 
 		cout << g.getMinEnergy() << " ";
